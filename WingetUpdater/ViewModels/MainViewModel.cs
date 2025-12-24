@@ -15,12 +15,18 @@ namespace WingetUpdater.ViewModels
     {
         private readonly WingetService _wingetService;
         private readonly Services.UninstallService _uninstallService;
+        private readonly Services.CleanupService _cleanupService;
         private bool _isLoading;
         private bool _isUpdating;
         private double _progress;
         private string _statusMessage = "Listo";
         private string _logs = string.Empty;
         private bool _showLogs = false;
+        private string _searchText = string.Empty;
+        private string _totalCleanableSpace = "0 B";
+        private string _tempFilesSize = "0 B";
+        private string _recycleBinSize = "0 B";
+        private string _browserCacheSize = "0 B";
 
         public MainViewModel()
         {
@@ -31,7 +37,13 @@ namespace WingetUpdater.ViewModels
             _uninstallService = new Services.UninstallService();
             _uninstallService.LogMessage += OnOutputReceived;
 
+            _cleanupService = new Services.CleanupService();
+            _cleanupService.LogMessage += OnOutputReceived;
+
             Packages = new ObservableCollection<PackageInfo>();
+            UpdatesPackages = new ObservableCollection<PackageInfo>();
+            AllPackages = new ObservableCollection<PackageInfo>();
+            FilteredPackages = new ObservableCollection<PackageInfo>();
 
             RefreshCommand = new RelayCommand(async _ => await RefreshPackagesAsync(), _ => !IsLoading && !IsUpdating);
             UpdateSelectedCommand = new RelayCommand(async _ => await UpdateSelectedPackagesAsync(), _ => !IsUpdating && Packages.Any(p => p.IsSelected));
@@ -42,12 +54,21 @@ namespace WingetUpdater.ViewModels
             UninstallSelectedCommand = new RelayCommand(async _ => await UninstallSelectedPackagesAsync(), _ => !IsUpdating && Packages.Any(p => p.IsSelected));
             UpdatePackageCommand = new RelayCommand(async param => await UpdateSinglePackageAsync(param as PackageInfo), _ => !IsUpdating);
             UninstallPackageCommand = new RelayCommand(async param => await UninstallSinglePackageAsync(param as PackageInfo), _ => !IsUpdating);
+            SearchCommand = new RelayCommand(_ => FilterPrograms());
+            AnalyzeSystemCommand = new RelayCommand(async _ => await AnalyzeSystemAsync(), _ => !IsLoading);
+            CleanTempFilesCommand = new RelayCommand(async _ => await CleanTempFilesAsync(), _ => !IsUpdating);
+            EmptyRecycleBinCommand = new RelayCommand(async _ => await EmptyRecycleBinAsync(), _ => !IsUpdating);
+            CleanBrowserCacheCommand = new RelayCommand(async _ => await CleanBrowserCacheAsync(), _ => !IsUpdating);
+            CleanAllCommand = new RelayCommand(async _ => await CleanAllAsync(), _ => !IsUpdating);
 
             // Auto-check for winget and load packages on startup
             _ = InitializeAsync();
         }
 
         public ObservableCollection<PackageInfo> Packages { get; }
+        public ObservableCollection<PackageInfo> UpdatesPackages { get; }
+        public ObservableCollection<PackageInfo> AllPackages { get; }
+        public ObservableCollection<PackageInfo> FilteredPackages { get; }
 
         public RelayCommand RefreshCommand { get; }
         public RelayCommand UpdateSelectedCommand { get; }
@@ -58,6 +79,12 @@ namespace WingetUpdater.ViewModels
         public RelayCommand UninstallSelectedCommand { get; }
         public RelayCommand UpdatePackageCommand { get; }
         public RelayCommand UninstallPackageCommand { get; }
+        public RelayCommand SearchCommand { get; }
+        public RelayCommand AnalyzeSystemCommand { get; }
+        public RelayCommand CleanTempFilesCommand { get; }
+        public RelayCommand EmptyRecycleBinCommand { get; }
+        public RelayCommand CleanBrowserCacheCommand { get; }
+        public RelayCommand CleanAllCommand { get; }
 
         public bool IsLoading
         {
@@ -123,6 +150,57 @@ namespace WingetUpdater.ViewModels
             }
         }
 
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                _searchText = value;
+                OnPropertyChanged();
+                FilterPrograms();
+            }
+        }
+
+        public string TotalCleanableSpace
+        {
+            get => _totalCleanableSpace;
+            set
+            {
+                _totalCleanableSpace = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string TempFilesSize
+        {
+            get => _tempFilesSize;
+            set
+            {
+                _tempFilesSize = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string RecycleBinSize
+        {
+            get => _recycleBinSize;
+            set
+            {
+                _recycleBinSize = value;
+                OnPropertyChanged();
+            }
+        }
+
+        public string BrowserCacheSize
+        {
+            get => _browserCacheSize;
+            set
+            {
+                _browserCacheSize = value;
+                OnPropertyChanged();
+            }
+        }
+
         private async Task InitializeAsync()
         {
             AddLog("Verificando instalación de winget...");
@@ -149,21 +227,38 @@ namespace WingetUpdater.ViewModels
             StatusMessage = "Cargando programas instalados...";
             Progress = 0;
             Packages.Clear();
+            UpdatesPackages.Clear();
+            AllPackages.Clear();
+            FilteredPackages.Clear();
 
             AddLog("Cargando todos los programas instalados...");
 
             try
             {
-                // Get ALL installed packages, not just updates
-                var packages = await _wingetService.GetAllInstalledPackagesAsync();
+                // Get ALL installed packages
+                var allPackages = await _wingetService.GetAllInstalledPackagesAsync();
                 
-                foreach (var package in packages)
+                // Get packages with updates available
+                var updatesPackages = await _wingetService.GetAvailableUpdatesAsync();
+                
+                // Populate collections
+                foreach (var package in allPackages)
                 {
                     Packages.Add(package);
+                    AllPackages.Add(package);
                 }
 
-                StatusMessage = $"{Packages.Count} programa(s) instalado(s)";
-                AddLog($"Se encontraron {Packages.Count} programa(s) instalado(s).");
+                foreach (var package in updatesPackages)
+                {
+                    UpdatesPackages.Add(package);
+                }
+
+                // Initialize filtered collection with all packages
+                FilterPrograms();
+
+                StatusMessage = $"{AllPackages.Count} programa(s) instalado(s) | {UpdatesPackages.Count} actualización(es) disponible(s)";
+                AddLog($"Se encontraron {AllPackages.Count} programa(s) instalado(s).");
+                AddLog($"Hay {UpdatesPackages.Count} actualización(es) disponible(s).");
             }
             catch (Exception ex)
             {
@@ -467,6 +562,252 @@ namespace WingetUpdater.ViewModels
             Progress = 0;
         }
 
+        private void FilterPrograms()
+        {
+            FilteredPackages.Clear();
+
+            if (string.IsNullOrWhiteSpace(SearchText))
+            {
+                foreach (var package in AllPackages)
+                {
+                    FilteredPackages.Add(package);
+                }
+            }
+            else
+            {
+                var searchLower = SearchText.ToLower();
+                foreach (var package in AllPackages)
+                {
+                    if (package.Name.ToLower().Contains(searchLower) ||
+                        package.Id.ToLower().Contains(searchLower))
+                    {
+                        FilteredPackages.Add(package);
+                    }
+                }
+            }
+        }
+
+        private async Task AnalyzeSystemAsync()
+        {
+            IsLoading = true;
+            StatusMessage = "Analizando sistema...";
+            Progress = 50;
+
+            AddLog("Analizando espacio recuperable...");
+
+            try
+            {
+                var analysis = await _cleanupService.AnalyzeSystemAsync();
+
+                TempFilesSize = FormatBytes(analysis.TemporaryFilesSize + analysis.SystemTempSize);
+                RecycleBinSize = FormatBytes(analysis.RecycleBinSize);
+                BrowserCacheSize = FormatBytes(analysis.BrowserCacheSize);
+                TotalCleanableSpace = FormatBytes(analysis.TotalSize);
+
+                StatusMessage = $"Análisis completo: {TotalCleanableSpace} recuperables";
+                AddLog($"Espacio total recuperable: {TotalCleanableSpace}");
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "Error al analizar sistema";
+                AddLog($"ERROR: {ex.Message}");
+            }
+            finally
+            {
+                IsLoading = false;
+                Progress = 0;
+            }
+        }
+
+        private async Task CleanTempFilesAsync()
+        {
+            var result = MessageBox.Show(
+                "¿Deseas limpiar los archivos temporales?\\n\\nEsta acción es segura y no afectará tus programas.",
+                "Confirmar limpieza",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            IsUpdating = true;
+            StatusMessage = "Limpiando archivos temporales...";
+            Progress = 50;
+
+            AddLog("Limpiando archivos temporales...");
+
+            try
+            {
+                var cleanResult = await _cleanupService.CleanUserTemporaryFilesAsync();
+
+                if (cleanResult.Success)
+                {
+                    AddLog($"✓ Limpieza completada: {cleanResult.FilesDeleted} archivos, {FormatBytes(cleanResult.SpaceFreed)} liberados");
+                    StatusMessage = "Limpieza completada";
+                }
+                else
+                {
+                    AddLog($"✗ Error en limpieza");
+                    StatusMessage = "Error en limpieza";
+                }
+
+                // Refresh analysis
+                await AnalyzeSystemAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "Error en limpieza";
+                AddLog($"ERROR: {ex.Message}");
+            }
+            finally
+            {
+                IsUpdating = false;
+                Progress = 0;
+            }
+        }
+
+        private async Task EmptyRecycleBinAsync()
+        {
+            var result = MessageBox.Show(
+                "¿Deseas vaciar la papelera de reciclaje?\\n\\nEsta acción NO se puede deshacer.",
+                "Confirmar vaciado",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            IsUpdating = true;
+            StatusMessage = "Vaciando papelera...";
+            Progress = 50;
+
+            AddLog("Vaciando papelera de reciclaje...");
+
+            try
+            {
+                var cleanResult = await _cleanupService.EmptyRecycleBinAsync(silent: true);
+
+                if (cleanResult.Success)
+                {
+                    AddLog($"✓ Papelera vaciada: {FormatBytes(cleanResult.SpaceFreed)} liberados");
+                    StatusMessage = "Papelera vaciada";
+                }
+                else
+                {
+                    AddLog($"✗ Error al vaciar papelera");
+                    StatusMessage = "Error al vaciar papelera";
+                }
+
+                // Refresh analysis
+                await AnalyzeSystemAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "Error al vaciar papelera";
+                AddLog($"ERROR: {ex.Message}");
+            }
+            finally
+            {
+                IsUpdating = false;
+                Progress = 0;
+            }
+        }
+
+        private async Task CleanBrowserCacheAsync()
+        {
+            var result = MessageBox.Show(
+                "¿Deseas limpiar el caché de los navegadores?\\n\\nEsto cerrará las sesiones activas en los navegadores.",
+                "Confirmar limpieza",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            IsUpdating = true;
+            StatusMessage = "Limpiando caché de navegadores...";
+            Progress = 50;
+
+            AddLog("Limpiando caché de navegadores...");
+
+            try
+            {
+                var cleanResult = await _cleanupService.CleanBrowserCacheAsync();
+
+                if (cleanResult.Success)
+                {
+                    AddLog($"✓ Caché limpiado: {cleanResult.FilesDeleted} archivos, {FormatBytes(cleanResult.SpaceFreed)} liberados");
+                    StatusMessage = "Caché limpiado";
+                }
+                else
+                {
+                    AddLog($"✗ Error en limpieza de caché");
+                    StatusMessage = "Error en limpieza";
+                }
+
+                // Refresh analysis
+                await AnalyzeSystemAsync();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "Error en limpieza de caché";
+                AddLog($"ERROR: {ex.Message}");
+            }
+            finally
+            {
+                IsUpdating = false;
+                Progress = 0;
+            }
+        }
+
+        private async Task CleanAllAsync()
+        {
+            var result = MessageBox.Show(
+                "¿Deseas ejecutar una limpieza completa del sistema?\\n\\n" +
+                "Esto incluye:\\n" +
+                "• Archivos temporales\\n" +
+                "• Papelera de reciclaje\\n" +
+                "• Caché de navegadores\\n\\n" +
+                "Algunas acciones NO se pueden deshacer.",
+                "Confirmar limpieza completa",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            IsUpdating = true;
+            AddLog("Iniciando limpieza completa del sistema...");
+
+            // Clean temp files
+            StatusMessage = "Limpiando archivos temporales...";
+            Progress = 25;
+            await _cleanupService.CleanUserTemporaryFilesAsync();
+            AddLog("✓ Archivos temporales limpiados");
+
+            // Empty recycle bin
+            StatusMessage = "Vaciando papelera...";
+            Progress = 50;
+            await _cleanupService.EmptyRecycleBinAsync(silent: true);
+            AddLog("✓ Papelera vaciada");
+
+            // Clean browser cache
+            StatusMessage = "Limpiando caché de navegadores...";
+            Progress = 75;
+            await _cleanupService.CleanBrowserCacheAsync();
+            AddLog("✓ Caché de navegadores limpiado");
+
+            Progress = 100;
+            StatusMessage = "Limpieza completa finalizada";
+            AddLog("✓ Limpieza completa del sistema finalizada");
+
+            // Refresh analysis
+            await AnalyzeSystemAsync();
+
+            IsUpdating = false;
+            Progress = 0;
+        }
+
         private void OnOutputReceived(object? sender, string output)
         {
             Application.Current.Dispatcher.Invoke(() =>
@@ -481,6 +822,21 @@ namespace WingetUpdater.ViewModels
             {
                 AddLog($"ERROR: {error}");
             });
+        }
+
+        private string FormatBytes(long bytes)
+        {
+            string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+            double len = bytes;
+            int order = 0;
+            
+            while (len >= 1024 && order < sizes.Length - 1)
+            {
+                order++;
+                len = len / 1024;
+            }
+
+            return $"{len:0.##} {sizes[order]}";
         }
 
         private void AddLog(string message)

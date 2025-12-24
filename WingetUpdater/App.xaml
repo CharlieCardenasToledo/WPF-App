@@ -12,6 +12,7 @@
             
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
             <converters:CountToVisibilityConverter x:Key="CountToVisibilityConverter"/>
+            <converters:InvertedStringToVisibilityConverter x:Key="InvertedStringToVisibilityConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

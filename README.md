@@ -2,12 +2,15 @@
 
 <div align="center">
 
-![WingetUpdater](https://img.shields.io/badge/Platform-Windows-blue?logo=windows&logoColor=white)
-![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=.net)
-![License](https://img.shields.io/badge/License-MIT-green)
-![WPF](https://img.shields.io/badge/UI-WPF-00599C?logo=microsoft)
+![GitHub release](https://img.shields.io/github/v/release/CharlieCardenasToledo/WPF-App?style=for-the-badge)
+![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-blue?style=for-the-badge&logo=windows&logoColor=white)
+![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=for-the-badge&logo=.net)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![WPF](https://img.shields.io/badge/UI-WPF-00599C?style=for-the-badge&logo=microsoft)
 
 **Una aplicación moderna de WPF para gestionar actualizaciones y desinstalaciones de software en Windows usando winget**
+
+**🔍 Keywords:** winget gui • windows package manager • software updater • system cleanup • uninstaller • fluent design • wpf • .net 8
 
 [Características](#✨-características) • [Instalación](#🚀-instalación) • [Uso](#📖-uso) • [Tecnologías](#⚙️-tecnologías) • [Contribuir](#🤝-contribuir)
 

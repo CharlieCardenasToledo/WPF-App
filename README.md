@@ -92,7 +92,15 @@ Todo esto con una **interfaz moderna** basada en **Fluent Design 2024-2025** y p
 
 ### Ejecutable Compilado
 
-> 📦 Próximamente releases con archivos `.exe` listos para usar
+**📦 Descarga directa:** [WingetUpdater v1.0.0](https://github.com/CharlieCardenasToledo/WPF-App/releases)
+
+1. **Descarga** el archivo `WingetUpdater-v1.0.0-win-x64.zip` desde [Releases](https://github.com/CharlieCardenasToledo/WPF-App/releases)
+2. **Extrae** el contenido del ZIP a una carpeta
+3. **Ejecuta** `WingetUpdater.exe`
+
+> ⚠️ **Requisito:** Necesitas tener instalado [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) en tu sistema.
+
+> 💡 **Nota:** Windows Defender puede mostrar una advertencia la primera vez. Esto es normal para aplicaciones sin certificado de firma. Haz clic en "Más información" → "Ejecutar de todas formas".
 
 ---
 
